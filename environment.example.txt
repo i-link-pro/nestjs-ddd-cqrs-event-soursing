@@ -1,0 +1,25 @@
+# Скопируйте этот файл как .env и настройте переменные окружения
+
+# Настройки приложения
+NODE_ENV=development
+PORT=3000
+
+# Настройки базы данных PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=password
+DB_NAME=ddd_example
+
+# Дополнительные настройки (для расширения)
+JWT_SECRET=your_jwt_secret_here
+REDIS_URL=redis://localhost:6379
+
+# Настройки логирования
+LOG_LEVEL=debug
+
+# Инструкции:
+# 1. Переименуйте этот файл в .env
+# 2. Настройте параметры подключения к PostgreSQL
+# 3. Создайте базу данных: createdb ddd_example
+# 4. Запустите приложение: npm run start:dev 
