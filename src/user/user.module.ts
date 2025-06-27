@@ -7,6 +7,7 @@ import { UserTypeOrmEntity } from './infrastructure/entities/user.typeorm-entity
 // Controllers
 import { UserController } from './presentation/controllers/user.controller';
 import { UserCqrsController } from './presentation/controllers/user-cqrs.controller';
+import { UserEventSourcingController } from './presentation/controllers/user-event-sourcing.controller';
 
 // Domain Services
 import { UserDomainService } from './domain/services/user.domain-service';
@@ -42,8 +43,13 @@ import {
 // CQRS Infrastructure
 import { SimpleMediator } from '@shared/application/mediator.interface';
 
+// Event Sourcing
+import { EventStore } from '../shared/event-sourcing/event-store.interface';
+import { InMemoryEventStore } from './infrastructure/event-sourcing/in-memory-event-store';
+import { UserEventSourcedRepository } from './infrastructure/event-sourcing/user-event-sourced.repository';
+
 /**
- * Модуль домена пользователей с поддержкой CQRS
+ * Модуль домена пользователей с поддержкой CQRS и Event Sourcing
  * 
  * Этот модуль демонстрирует:
  * 1. Классическую DDD архитектуру
@@ -51,14 +57,18 @@ import { SimpleMediator } from '@shared/application/mediator.interface';
  * 3. Read Models для оптимизированного чтения
  * 4. Command и Query handlers
  * 5. Медиатор для развязки компонентов
+ * 6. Event Sourcing для хранения состояния как последовательности событий
+ * 7. Event Store для персистентности событий
+ * 8. Снимки (Snapshots) для оптимизации производительности
  */
 @Module({
   imports: [
     TypeOrmModule.forFeature([UserTypeOrmEntity])
   ],
   controllers: [
-    UserController,        // Классический DDD контроллер
-    UserCqrsController    // CQRS контроллер
+    UserController,              // Классический DDD контроллер
+    UserCqrsController,         // CQRS контроллер
+    UserEventSourcingController // Event Sourcing контроллер
   ],
   providers: [
     // === ДОМЕННЫЕ СЕРВИСЫ ===
@@ -82,6 +92,14 @@ import { SimpleMediator } from '@shared/application/mediator.interface';
       provide: UserReadModelRepositoryInterface,
       useClass: UserReadModelRepository
     },
+
+    // === EVENT SOURCING ===
+    {
+      provide: EventStore,
+      useClass: InMemoryEventStore
+    },
+    InMemoryEventStore,
+    UserEventSourcedRepository,
 
     // === CQRS COMMAND HANDLERS ===
     CreateUserHandler,
