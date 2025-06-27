@@ -1,11 +1,13 @@
+import { Command } from '@shared/application/command.interface';
+
 /**
- * Команда для создания пользователя
+ * Команда для создания пользователя в CQRS архитектуре
  * 
  * В DDD команды представляют намерения изменить состояние системы.
  * Команды содержат только данные, необходимые для выполнения операции,
  * без логики их выполнения.
  */
-export class CreateUserCommand {
+export class CreateUserCommand implements Command {
   constructor(
     public readonly email: string,
     public readonly firstName: string,

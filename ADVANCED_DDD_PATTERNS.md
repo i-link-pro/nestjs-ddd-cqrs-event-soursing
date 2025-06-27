@@ -316,4 +316,856 @@ async function findUsersForCleanup(): Promise<User[]> {
 3. **Расширьте** - создайте новые агрегаты и домены
 4. **Тестируйте** - напишите тесты для бизнес-логики
 
-Помните: **DDD — это не про технологии, а про бизнес-логику!** 
+Помните: **DDD — это не про технологии, а про бизнес-логику!**
+
+## 📑 Содержание
+
+1. [Агрегаты и Корни агрегатов](#агрегаты-и-корни-агрегатов)
+2. [Доменные события](#доменные-события)
+3. [Спецификации](#спецификации)
+4. [Фабрики](#фабрики)
+5. [Доменные сервисы](#доменные-сервисы)
+6. [CQRS (Command Query Responsibility Segregation)](#cqrs-command-query-responsibility-segregation)
+
+---
+
+## Агрегаты и Корни агрегатов
+
+### 🎯 Концепция
+
+**Агрегат** — это группа доменных объектов, которые могут рассматриваться как единое целое для целей обеспечения согласованности данных.
+
+**Корень агрегата** — единственный объект, через который внешний код может получить доступ к любому объекту внутри агрегата.
+
+### 📝 Реализация в проекте
+
+```typescript
+// src/shared/domain/aggregate-root.ts
+export abstract class AggregateRoot extends BaseEntity {
+  private _domainEvents: DomainEvent[] = [];
+
+  /**
+   * Добавить доменное событие
+   */
+  protected addDomainEvent(domainEvent: DomainEvent): void {
+    this._domainEvents.push(domainEvent);
+    console.log(`📨 Доменное событие добавлено: ${domainEvent.constructor.name}`);
+  }
+
+  /**
+   * Получить все доменные события
+   */
+  public getDomainEvents(): DomainEvent[] {
+    return [...this._domainEvents];
+  }
+
+  /**
+   * Очистить доменные события
+   */
+  public clearDomainEvents(): void {
+    console.log(`🧹 Очищено ${this._domainEvents.length} доменных событий`);
+    this._domainEvents = [];
+  }
+
+  /**
+   * Отметить агрегат как измененный
+   */
+  protected markAsModified(): void {
+    this.updatedAt = new Date();
+  }
+}
+```
+
+```typescript
+// src/user/domain/entities/user-aggregate.ts
+export class User extends AggregateRoot {
+  // Агрегат инкапсулирует бизнес-правила и события
+  public activate(): void {
+    if (this._status === UserStatus.BLOCKED) {
+      throw new Error('Заблокированный пользователь не может быть активирован');
+    }
+    
+    const previousStatus = this._status;
+    this._status = UserStatus.ACTIVE;
+    this.markAsModified();
+    
+    // Публикуем доменное событие
+    this.addDomainEvent(new UserActivatedEvent(this.id, this._email.value));
+    
+    console.log(`🔄 Пользователь активирован: ${this._email.value} (было: ${previousStatus})`);
+  }
+}
+```
+
+### 🎯 Ключевые принципы агрегатов
+
+1. **Единственная точка входа**: Доступ только через корень агрегата
+2. **Границы транзакций**: Один агрегат = одна транзакция
+3. **Инварианты**: Агрегат обеспечивает соблюдение бизнес-правил
+4. **Событийность**: Агрегат публикует события об изменениях
+
+---
+
+## Доменные события
+
+### 🎯 Концепция
+
+**Доменные события** представляют факты, важные для бизнеса, которые произошли в системе.
+
+### 📝 Реализация в проекте
+
+```typescript
+// src/shared/domain/domain-event.ts
+export interface DomainEvent {
+  readonly eventId: string;
+  readonly occurredOn: Date;
+  readonly eventType: string;
+}
+
+export abstract class BaseDomainEvent implements DomainEvent {
+  public readonly eventId: string;
+  public readonly occurredOn: Date;
+  public readonly eventType: string;
+
+  constructor(eventType: string) {
+    this.eventId = crypto.randomUUID();
+    this.occurredOn = new Date();
+    this.eventType = eventType;
+  }
+}
+```
+
+```typescript
+// src/user/domain/events/user-created.event.ts
+export class UserCreatedEvent extends BaseDomainEvent {
+  constructor(
+    public readonly userId: string,
+    public readonly email: string,
+    public readonly userName: string
+  ) {
+    super('UserCreated');
+  }
+
+  toString(): string {
+    return `UserCreatedEvent: User ${this.userName} (${this.email}) created with ID ${this.userId}`;
+  }
+}
+```
+
+### 🔄 Жизненный цикл событий
+
+1. **Создание**: События создаются в агрегатах при изменении состояния
+2. **Накопление**: События накапливаются в агрегате до сохранения
+3. **Публикация**: События публикуются после успешного сохранения
+4. **Обработка**: События обрабатываются асинхронно
+
+---
+
+## Спецификации
+
+### 🎯 Концепция
+
+**Спецификация** инкапсулирует бизнес-правило в виде предиката, который можно комбинировать с другими спецификациями.
+
+### 📝 Реализация в проекте
+
+```typescript
+// src/shared/domain/specification.ts
+export abstract class BaseSpecification<T> {
+  abstract isSatisfiedBy(candidate: T): boolean;
+
+  /**
+   * Логическое И
+   */
+  and(other: BaseSpecification<T>): BaseSpecification<T> {
+    return new AndSpecification(this, other);
+  }
+
+  /**
+   * Логическое ИЛИ
+   */
+  or(other: BaseSpecification<T>): BaseSpecification<T> {
+    return new OrSpecification(this, other);
+  }
+
+  /**
+   * Логическое НЕ
+   */
+  not(): BaseSpecification<T> {
+    return new NotSpecification(this);
+  }
+}
+```
+
+```typescript
+// src/user/domain/specifications/user-can-be-activated.specification.ts
+export class UserCanBeActivatedSpecification extends BaseSpecification<User> {
+  isSatisfiedBy(user: User): boolean {
+    // Пользователь может быть активирован, если:
+    // 1. Он не заблокирован
+    // 2. Email подтвержден
+    // 3. Статус не "активный"
+    
+    const isNotBlocked = user.status !== UserStatus.BLOCKED;
+    const isEmailVerified = user.isEmailVerified;
+    const isNotActive = user.status !== UserStatus.ACTIVE;
+    
+    return isNotBlocked && isEmailVerified && isNotActive;
+  }
+
+  /**
+   * Возвращает причину, почему спецификация не выполняется
+   */
+  getFailureReason(user: User): string | null {
+    if (user.status === UserStatus.BLOCKED) {
+      return 'Пользователь заблокирован';
+    }
+    
+    if (!user.isEmailVerified) {
+      return 'Email не подтвержден';
+    }
+    
+    if (user.status === UserStatus.ACTIVE) {
+      return 'Пользователь уже активен';
+    }
+    
+    return null;
+  }
+}
+```
+
+### 🔄 Композиция спецификаций
+
+```typescript
+// Пример использования композиции спецификаций
+const canBeActivated = new UserCanBeActivatedSpecification();
+const isPremium = new PremiumUserSpecification();
+
+// Комбинированная спецификация
+const canBeActivatedPremium = canBeActivated.and(isPremium);
+
+if (canBeActivatedPremium.isSatisfiedBy(user)) {
+  user.activate();
+  user.upgradeToPremium();
+}
+```
+
+---
+
+## Фабрики
+
+### 🎯 Концепция
+
+**Фабрика** инкапсулирует логику создания сложных объектов и агрегатов.
+
+### 📝 Реализация в проекте
+
+```typescript
+// src/user/domain/factories/user.factory.ts
+export class UserFactory {
+  /**
+   * Создать нового пользователя
+   */
+  static create(params: {
+    email: string;
+    firstName: string;
+    lastName: string;
+  }): User {
+    console.log(`🏭 UserFactory: создание нового пользователя ${params.email}`);
+
+    // 1. Создание объектов-значений
+    const email = Email.create(params.email);
+    const userName = UserName.create(params.firstName, params.lastName);
+
+    // 2. Валидация
+    UserFactory.validateCreationParams(email, userName);
+
+    // 3. Создание агрегата
+    const user = new User(email, userName);
+
+    console.log(`✅ Пользователь создан: ${user.id}`);
+    return user;
+  }
+
+  /**
+   * Восстановить пользователя из данных БД
+   */
+  static restore(data: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    status: UserStatus;
+    isEmailVerified: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }): User {
+    console.log(`🔄 UserFactory: восстановление пользователя ${data.id}`);
+
+    const email = Email.create(data.email);
+    const userName = UserName.create(data.firstName, data.lastName);
+
+    const user = User.restore(
+      data.id,
+      email,
+      userName,
+      data.status,
+      data.isEmailVerified,
+      data.createdAt,
+      data.updatedAt
+    );
+
+    console.log(`✅ Пользователь восстановлен: ${data.email}`);
+    return user;
+  }
+
+  /**
+   * Создать пользователя с уже подтвержденным email
+   */
+  static createVerified(params: {
+    email: string;
+    firstName: string;
+    lastName: string;
+  }): User {
+    const user = UserFactory.create(params);
+    user.verifyEmail();  // Автоматически подтверждаем email
+    
+    console.log(`✅ Создан верифицированный пользователь: ${params.email}`);
+    return user;
+  }
+}
+```
+
+---
+
+## Доменные сервисы
+
+### 🎯 Концепция
+
+**Доменный сервис** содержит бизнес-логику, которая не принадлежит конкретной сущности.
+
+### 📝 Реализация в проекте
+
+```typescript
+// src/user/domain/services/user-domain-service.enhanced.ts
+@Injectable()
+export class UserDomainServiceEnhanced {
+  /**
+   * Проверить, может ли пользователь быть активирован
+   */
+  canUserBeActivated(user: User): { canActivate: boolean; reason?: string } {
+    const specification = new UserCanBeActivatedSpecification();
+    
+    if (specification.isSatisfiedBy(user)) {
+      return { canActivate: true };
+    }
+    
+    return {
+      canActivate: false,
+      reason: specification.getFailureReason(user)
+    };
+  }
+
+  /**
+   * Вычислить уровень доверия пользователя
+   */
+  calculateTrustLevel(user: User): 'low' | 'medium' | 'high' | 'premium' {
+    let score = 0;
+
+    // Базовые факторы
+    if (user.isEmailVerified) score += 25;
+    if (user.status === UserStatus.ACTIVE) score += 20;
+
+    // Возраст аккаунта
+    const daysSinceCreation = this.calculateDaysSince(user.createdAt);
+    if (daysSinceCreation >= 365) score += 30;
+    else if (daysSinceCreation >= 90) score += 20;
+    else if (daysSinceCreation >= 30) score += 10;
+
+    // Последняя активность
+    if (user.lastLoginAt) {
+      const daysSinceLogin = this.calculateDaysSince(user.lastLoginAt);
+      if (daysSinceLogin <= 7) score += 25;
+      else if (daysSinceLogin <= 30) score += 15;
+      else if (daysSinceLogin <= 90) score += 5;
+    }
+
+    // Определяем уровень
+    if (score >= 80) return 'premium';
+    else if (score >= 60) return 'high';
+    else if (score >= 40) return 'medium';
+    else return 'low';
+  }
+}
+```
+
+---
+
+## CQRS (Command Query Responsibility Segregation)
+
+### 🎯 Концепция
+
+**CQRS** — это паттерн, который разделяет операции чтения (queries) и записи (commands) данных, используя разные модели для каждого типа операций.
+
+### 🏗️ Архитектура CQRS в проекте
+
+```
+┌─────────────────┐    ┌──────────────────┐
+│    Commands     │    │     Queries      │
+│   (изменения)   │    │    (чтение)      │
+└─────────────────┘    └──────────────────┘
+         │                        │
+         ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐
+│ Command Handlers│    │ Query Handlers   │
+└─────────────────┘    └──────────────────┘
+         │                        │
+         ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐
+│ Domain Models   │    │  Read Models     │
+│  (для записи)   │    │ (для чтения)     │
+└─────────────────┘    └──────────────────┘
+         │                        │
+         ▼                        ▼
+┌─────────────────┐    ┌──────────────────┐
+│ Write Database  │    │ Read Database    │
+└─────────────────┘    └──────────────────┘
+```
+
+### 📝 Команды (Commands)
+
+```typescript
+// src/shared/application/command.interface.ts
+export interface Command {
+  validate(): void;
+}
+
+export interface CommandHandler<TCommand extends Command, TResult = void> {
+  handle(command: TCommand): Promise<TResult>;
+}
+```
+
+```typescript
+// src/user/application/commands/create-user.command.ts
+export class CreateUserCommand implements Command {
+  constructor(
+    public readonly email: string,
+    public readonly firstName: string,
+    public readonly lastName: string
+  ) {}
+
+  validate(): void {
+    if (!this.email?.trim()) {
+      throw new Error('Email обязателен для заполнения');
+    }
+    // ... другие валидации
+  }
+}
+```
+
+```typescript
+// src/user/application/commands/handlers/create-user.handler.ts
+@Injectable()
+export class CreateUserHandler implements CommandHandler<CreateUserCommand, User> {
+  constructor(
+    private readonly userRepository: UserRepositoryInterface,
+    private readonly userDomainService: UserDomainService
+  ) {}
+
+  async handle(command: CreateUserCommand): Promise<User> {
+    console.log(`🎯 CQRS Command: CreateUser для ${command.email}`);
+
+    // 1. Валидация команды
+    command.validate();
+
+    // 2. Создание агрегата через фабрику
+    const user = UserFactory.create({
+      email: command.email,
+      firstName: command.firstName,
+      lastName: command.lastName
+    });
+
+    // 3. Доменная валидация
+    await this.userDomainService.validateEmailUniqueness(user.email);
+
+    // 4. Сохранение агрегата
+    const savedUser = await this.userRepository.save(user);
+
+    console.log(`✅ Пользователь создан через CQRS: ${savedUser.id}`);
+    return savedUser;
+  }
+}
+```
+
+### 📝 Запросы (Queries)
+
+```typescript
+// src/shared/application/query.interface.ts
+export interface Query {
+  validate(): void;
+}
+
+export interface QueryHandler<TQuery extends Query, TResult> {
+  handle(query: TQuery): Promise<TResult>;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}
+```
+
+```typescript
+// src/user/application/queries/get-user.query.ts
+export class GetUserQuery implements Query {
+  constructor(public readonly userId: string) {}
+
+  validate(): void {
+    if (!this.userId?.trim()) {
+      throw new Error('ID пользователя обязателен');
+    }
+  }
+}
+
+export class GetUsersQuery implements Query {
+  constructor(
+    public readonly page: number = 1,
+    public readonly limit: number = 10,
+    public readonly status?: string,
+    public readonly emailVerified?: boolean,
+    public readonly sortBy: string = 'createdAt',
+    public readonly sortOrder: 'ASC' | 'DESC' = 'DESC'
+  ) {}
+
+  validate(): void {
+    if (this.page < 1) {
+      throw new Error('Номер страницы должен быть больше 0');
+    }
+    
+    if (this.limit < 1 || this.limit > 100) {
+      throw new Error('Количество записей должно быть от 1 до 100');
+    }
+  }
+}
+```
+
+### 📝 Read Models (Модели чтения)
+
+```typescript
+// src/user/infrastructure/read-models/user.read-model.ts
+export class UserReadModel {
+  public readonly id: string;
+  public readonly email: string;
+  public readonly firstName: string;
+  public readonly lastName: string;
+  public readonly fullName: string;
+  public readonly status: string;
+  public readonly isEmailVerified: boolean;
+  public readonly isActive: boolean;
+  public readonly createdAt: Date;
+  public readonly updatedAt: Date;
+
+  // Предвычисленные поля для UI
+  public readonly daysSinceLastLogin: number | null;
+  public readonly daysSinceCreation: number;
+  public readonly trustLevel: 'low' | 'medium' | 'high' | 'premium';
+  public readonly isPremium: boolean;
+
+  constructor(data: UserReadModelData) {
+    // Инициализация всех полей
+    this.id = data.id;
+    this.email = data.email;
+    // ... другие поля
+
+    // Вычисляемые поля
+    this.fullName = `${data.firstName} ${data.lastName}`;
+    this.daysSinceCreation = this.calculateDaysSinceCreation();
+    this.trustLevel = this.calculateTrustLevel();
+    this.isPremium = this.calculateIsPremium();
+  }
+
+  /**
+   * Создать read model из ORM entity
+   */
+  static fromOrmEntity(entity: UserTypeOrmEntity): UserReadModel {
+    return new UserReadModel({
+      id: entity.id,
+      email: entity.email,
+      firstName: entity.firstName,
+      lastName: entity.lastName,
+      status: entity.status,
+      createdAt: entity.createdAt,
+      updatedAt: entity.updatedAt,
+      lastLoginAt: entity.lastLoginAt,
+      emailVerifiedAt: entity.emailVerifiedAt
+    });
+  }
+}
+```
+
+### 📝 Query Handlers
+
+```typescript
+// src/user/application/queries/handlers/get-user.handler.ts
+@Injectable()
+export class GetUserHandler implements QueryHandler<GetUserQuery, UserReadModel | null> {
+  constructor(
+    private readonly userReadRepository: UserReadModelRepositoryInterface
+  ) {}
+
+  async handle(query: GetUserQuery): Promise<UserReadModel | null> {
+    console.log(`📖 CQRS Query: GetUser для ${query.userId}`);
+
+    query.validate();
+
+    const user = await this.userReadRepository.findById(query.userId);
+    
+    if (user) {
+      console.log(`✅ Пользователь найден: ${user.email}`);
+    } else {
+      console.log(`❌ Пользователь не найден: ${query.userId}`);
+    }
+
+    return user;
+  }
+}
+```
+
+### 📝 Медиатор (Mediator)
+
+```typescript
+// src/shared/application/mediator.interface.ts
+export interface Mediator {
+  send<TResult = void>(command: Command): Promise<CommandResult<TResult>>;
+  query<TResult>(query: Query): Promise<TResult>;
+  publish(event: any): Promise<void>;
+}
+
+export class SimpleMediator implements Mediator {
+  private commandHandlers = new Map<string, any>();
+  private queryHandlers = new Map<string, any>();
+
+  async send<TResult = void>(command: Command): Promise<CommandResult<TResult>> {
+    try {
+      command.validate();
+      
+      const handler = this.commandHandlers.get(command.constructor.name);
+      if (!handler) {
+        throw new Error(`No handler found for command ${command.constructor.name}`);
+      }
+
+      const result = await handler.handle(command);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async query<TResult>(query: Query): Promise<TResult> {
+    query.validate();
+    
+    const handler = this.queryHandlers.get(query.constructor.name);
+    if (!handler) {
+      throw new Error(`No handler found for query ${query.constructor.name}`);
+    }
+
+    return await handler.handle(query);
+  }
+}
+```
+
+### 📝 CQRS Service
+
+```typescript
+// src/user/application/services/user-cqrs.service.ts
+@Injectable()
+export class UserCqrsService {
+  constructor(private readonly mediator: Mediator) {}
+
+  // === КОМАНДЫ ===
+  async createUser(data: CreateUserData): Promise<any> {
+    const command = new CreateUserCommand(
+      data.email,
+      data.firstName,
+      data.lastName
+    );
+
+    const result = await this.mediator.send(command);
+    
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+
+    return result.data;
+  }
+
+  // === ЗАПРОСЫ ===
+  async getUserById(userId: string): Promise<UserReadModel | null> {
+    const query = new GetUserQuery(userId);
+    return await this.mediator.query(query);
+  }
+
+  async getUsers(params: GetUsersParams): Promise<PaginatedResult<UserReadModel>> {
+    const query = new GetUsersQuery(
+      params.page,
+      params.limit,
+      params.status,
+      params.emailVerified,
+      params.sortBy,
+      params.sortOrder
+    );
+
+    return await this.mediator.query(query);
+  }
+}
+```
+
+### 📝 CQRS Controller
+
+```typescript
+// src/user/presentation/controllers/user-cqrs.controller.ts
+@ApiTags('Users CQRS')
+@Controller('cqrs/users')
+export class UserCqrsController {
+  constructor(private readonly userCqrsService: UserCqrsService) {}
+
+  @Post()
+  @ApiOperation({ 
+    summary: 'Создать пользователя (CQRS Command)',
+    description: 'Создает нового пользователя через CQRS архитектуру'
+  })
+  async createUser(@Body() createUserDto: CreateUserDto) {
+    console.log('🎯 CQRS Command: CreateUser');
+    
+    const user = await this.userCqrsService.createUser({
+      email: createUserDto.email,
+      firstName: createUserDto.firstName,
+      lastName: createUserDto.lastName
+    });
+
+    return {
+      message: 'Пользователь создан через CQRS',
+      data: user,
+      pattern: 'Command'
+    };
+  }
+
+  @Get(':id')
+  @ApiOperation({ 
+    summary: 'Получить пользователя (CQRS Query)',
+    description: 'Получает пользователя через CQRS запрос с Read Model'
+  })
+  async getUserById(@Param('id') id: string) {
+    console.log('📖 CQRS Query: GetUser');
+    
+    const user = await this.userCqrsService.getUserById(id);
+    
+    if (!user) {
+      throw new HttpException('Пользователь не найден', HttpStatus.NOT_FOUND);
+    }
+
+    return {
+      message: 'Пользователь получен через CQRS Query',
+      data: user.toObject(),
+      pattern: 'Query',
+      readModel: true
+    };
+  }
+}
+```
+
+### 🎯 Преимущества CQRS
+
+1. **Разделение ответственности**
+   - Команды фокусируются на бизнес-логике
+   - Запросы оптимизированы для конкретных сценариев
+
+2. **Масштабируемость**
+   - Независимое масштабирование чтения и записи
+   - Возможность использования разных БД
+
+3. **Оптимизация**
+   - Read Models оптимизированы для UI
+   - Предвычисленные поля и агрегации
+
+4. **Гибкость**
+   - Разные модели данных для разных потребностей
+   - Легкое добавление новых запросов
+
+### 🎯 Недостатки CQRS
+
+1. **Сложность**
+   - Больше кода и компонентов
+   - Сложнее для понимания
+
+2. **Консистентность**
+   - Eventual consistency между моделями
+   - Необходимость синхронизации
+
+3. **Дублирование**
+   - Дублирование данных в read models
+   - Больше места для хранения
+
+### 🚀 Использование в проекте
+
+```bash
+# Создание пользователя через CQRS
+curl -X POST http://localhost:3000/cqrs/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john.doe@example.com",
+    "firstName": "John",
+    "lastName": "Doe"
+  }'
+
+# Получение пользователя через CQRS
+curl http://localhost:3000/cqrs/users/USER_ID
+
+# Получение списка с фильтрацией
+curl "http://localhost:3000/cqrs/users?page=1&limit=10&status=active&emailVerified=true"
+
+# Аналитика через CQRS
+curl http://localhost:3000/cqrs/users/analytics/overview?period=month
+```
+
+### 📊 Мониторинг CQRS
+
+В логах можно отследить разделение команд и запросов:
+
+```
+🎯 CQRS Command: CreateUser для john.doe@example.com
+✅ Пользователь создан через CQRS: 12345
+
+📖 CQRS Query: GetUser для 12345
+✅ Пользователь найден: john.doe@example.com
+
+📊 CQRS Query: GetUserAnalytics (период: month)
+✅ Аналитика рассчитана: 1000 пользователей проанализировано
+```
+
+---
+
+## 🎯 Заключение
+
+Все эти паттерны работают вместе, создавая гибкую и масштабируемую архитектуру:
+
+- **Агрегаты** обеспечивают целостность данных
+- **События** обеспечивают слабую связанность
+- **Спецификации** инкапсулируют бизнес-правила
+- **Фабрики** управляют созданием объектов
+- **Доменные сервисы** содержат кросс-агрегатную логику
+- **CQRS** оптимизирует чтение и запись
+
+Изучение этих паттернов поможет создавать более чистый, тестируемый и поддерживаемый код в сложных доменах. 
