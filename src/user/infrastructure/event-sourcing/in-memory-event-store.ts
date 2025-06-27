@@ -44,7 +44,7 @@ export class InMemoryEventStore implements EventStore {
         eventType: event.constructor.name,
         eventVersion: 1, // Версия схемы события
         aggregateVersion: versionCounter,
-        timestamp: event.occurredOn,
+        timestamp: event.occurredAt,
         metadata: {
           correlationId: crypto.randomUUID(),
           userId: aggregateId // Для простоты
@@ -145,7 +145,7 @@ export class InMemoryEventStore implements EventStore {
     return {
       type: event.constructor.name,
       aggregateId: event.aggregateId,
-      occurredOn: event.occurredOn.toISOString(),
+      occurredAt: event.occurredAt.toISOString(),
       ...this.getEventData(event)
     };
   }
@@ -157,7 +157,7 @@ export class InMemoryEventStore implements EventStore {
     // Извлекаем данные события (исключая базовые поля)
     const eventData = { ...event } as any;
     delete eventData.aggregateId;
-    delete eventData.occurredOn;
+    delete eventData.occurredAt;
     delete eventData.aggregateVersion;
     
     return eventData;

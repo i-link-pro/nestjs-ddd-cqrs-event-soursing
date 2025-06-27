@@ -48,6 +48,11 @@ import { EventStore } from '../shared/event-sourcing/event-store.interface';
 import { InMemoryEventStore } from './infrastructure/event-sourcing/in-memory-event-store';
 import { UserEventSourcedRepository } from './infrastructure/event-sourcing/user-event-sourced.repository';
 
+// Токены для DI
+export const USER_REPOSITORY_TOKEN = 'USER_REPOSITORY';
+export const USER_READ_MODEL_REPOSITORY_TOKEN = 'USER_READ_MODEL_REPOSITORY';
+export const EVENT_STORE_TOKEN = 'EVENT_STORE';
+
 /**
  * Модуль домена пользователей с поддержкой CQRS и Event Sourcing
  * 
@@ -81,7 +86,7 @@ import { UserEventSourcedRepository } from './infrastructure/event-sourcing/user
 
     // === РЕПОЗИТОРИИ ===
     {
-      provide: UserRepositoryInterface,
+      provide: USER_REPOSITORY_TOKEN,
       useClass: UserAggregateRepository  // Используем агрегат репозиторий по умолчанию
     },
     UserRepository,  // Простой репозиторий для совместимости
@@ -89,13 +94,13 @@ import { UserEventSourcedRepository } from './infrastructure/event-sourcing/user
 
     // === CQRS READ MODELS ===
     {
-      provide: UserReadModelRepositoryInterface,
+      provide: USER_READ_MODEL_REPOSITORY_TOKEN,
       useClass: UserReadModelRepository
     },
 
     // === EVENT SOURCING ===
     {
-      provide: EventStore,
+      provide: EVENT_STORE_TOKEN,
       useClass: InMemoryEventStore
     },
     InMemoryEventStore,
@@ -195,8 +200,8 @@ import { UserEventSourcedRepository } from './infrastructure/event-sourcing/user
     // Экспортируем для использования в других модулях
     UserApplicationService,
     UserCqrsService,
-    UserRepositoryInterface,
-    UserReadModelRepositoryInterface,
+    USER_REPOSITORY_TOKEN,
+    USER_READ_MODEL_REPOSITORY_TOKEN,
     UserDomainService,
     UserDomainServiceEnhanced
   ],

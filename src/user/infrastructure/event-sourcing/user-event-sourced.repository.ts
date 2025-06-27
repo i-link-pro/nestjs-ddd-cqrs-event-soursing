@@ -171,39 +171,33 @@ export class UserEventSourcedRepository implements EventSourcedRepository<UserEv
           return new UserCreatedEvent(
             eventData.aggregateId,
             eventData.email,
-            eventData.firstName,
-            eventData.lastName,
-            new Date(eventData.occurredOn)
+            eventData.fullName || `${eventData.firstName || ''} ${eventData.lastName || ''}`.trim()
           );
 
         case 'UserActivatedEvent':
           return new UserActivatedEvent(
             eventData.aggregateId,
-            eventData.email,
-            new Date(eventData.occurredOn)
+            eventData.email
           );
 
         case 'UserBlockedEvent':
           return new UserBlockedEvent(
             eventData.aggregateId,
             eventData.email,
-            eventData.reason,
-            new Date(eventData.occurredOn)
+            eventData.reason
           );
 
         case 'UserEmailVerifiedEvent':
           return new UserEmailVerifiedEvent(
             eventData.aggregateId,
-            eventData.email,
-            new Date(eventData.occurredOn)
+            eventData.email
           );
 
         case 'UserEmailChangedEvent':
           return new UserEmailChangedEvent(
             eventData.aggregateId,
             eventData.oldEmail,
-            eventData.newEmail,
-            new Date(eventData.occurredOn)
+            eventData.newEmail
           );
 
         default:
@@ -211,7 +205,10 @@ export class UserEventSourcedRepository implements EventSourcedRepository<UserEv
           // Возвращаем базовое событие для обратной совместимости
           return {
             aggregateId: eventData.aggregateId,
-            occurredOn: new Date(eventData.occurredOn)
+            occurredAt: new Date(eventData.occurredAt || new Date()),
+            eventId: 'unknown',
+            eventVersion: 1,
+            aggregateType: 'User'
           } as BaseDomainEvent;
       }
     });
@@ -260,8 +257,7 @@ export class UserEventSourcedRepository implements EventSourcedRepository<UserEv
   async getUsersCreatedBetween(fromDate: Date, toDate: Date): Promise<Array<{
     userId: string;
     email: string;
-    firstName: string;
-    lastName: string;
+    fullName: string;
     createdAt: Date;
   }>> {
     const events = await this.eventStore.getEventsByAggregateType('User', fromDate, toDate);
@@ -271,9 +267,8 @@ export class UserEventSourcedRepository implements EventSourcedRepository<UserEv
       .map(event => ({
         userId: event.data.aggregateId,
         email: event.data.email,
-        firstName: event.data.firstName,
-        lastName: event.data.lastName,
+        fullName: event.data.fullName || 'Unknown User',
         createdAt: event.metadata.timestamp
       }));
   }
-} 
+}

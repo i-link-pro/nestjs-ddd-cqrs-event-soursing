@@ -1,5 +1,5 @@
 import { BaseRepository } from '@shared/domain/repository.interface';
-import { User } from '../entities/user.entity';
+import { User } from '../entities/user-aggregate';
 import { Email } from '../value-objects/email';
 
 /**

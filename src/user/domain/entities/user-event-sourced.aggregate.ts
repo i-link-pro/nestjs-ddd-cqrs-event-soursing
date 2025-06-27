@@ -33,9 +33,9 @@ export class UserEventSourcedAggregate extends EventSourcedAggregateRoot {
   private _lastLoginAt?: Date;
 
   /**
-   * Приватный конструктор - агрегаты создаются через фабричные методы
+   * Конструктор агрегата (public для совместимости с базовым классом)
    */
-  private constructor(id?: string) {
+  constructor(id?: string) {
     super(id);
   }
 
@@ -78,27 +78,14 @@ export class UserEventSourcedAggregate extends EventSourcedAggregateRoot {
     const event = new UserCreatedEvent(
       user.id,
       email.value,
-      userName.firstName,
-      userName.lastName
+      `${userName.firstName} ${userName.lastName}` // fullName
     );
     
     user.applyEvent(event);
     return user;
   }
 
-  /**
-   * Восстановить агрегат из истории событий
-   */
-  public static fromHistory(events: BaseDomainEvent[]): UserEventSourcedAggregate {
-    return super.fromHistory.call(this, events);
-  }
-
-  /**
-   * Восстановить агрегат из снимка
-   */
-  public static fromSnapshot(snapshot: any): UserEventSourcedAggregate {
-    return super.fromSnapshot.call(this, snapshot);
-  }
+  // Методы fromHistory и fromSnapshot наследуются от базового класса
 
   // === Команды агрегата ===
 
@@ -214,10 +201,14 @@ export class UserEventSourcedAggregate extends EventSourcedAggregateRoot {
    */
   private whenUserCreated(event: UserCreatedEvent): void {
     this._email = Email.create(event.email);
-    this._userName = UserName.create(event.firstName, event.lastName);
+    // Разбираем fullName обратно на firstName и lastName
+    const names = event.fullName.split(' ');
+    const firstName = names[0] || '';
+    const lastName = names.slice(1).join(' ') || '';
+    this._userName = UserName.create(firstName, lastName);
     this._status = UserStatus.PENDING;
     this._isEmailVerified = false;
-    this._createdAt = event.occurredOn;
+    this._createdAt = event.occurredAt;
   }
 
   /**
@@ -299,6 +290,6 @@ export class UserEventSourcedAggregate extends EventSourcedAggregateRoot {
    * Получить полное имя пользователя
    */
   public getFullName(): string {
-    return this._userName.fullName;
+    return `${this._userName.firstName} ${this._userName.lastName}`;
   }
 } 

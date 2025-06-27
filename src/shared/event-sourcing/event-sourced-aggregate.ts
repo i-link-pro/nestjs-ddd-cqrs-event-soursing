@@ -75,7 +75,7 @@ export abstract class EventSourcedAggregateRoot {
    * @param event Событие для применения
    * @param isNew Новое событие (true) или историческое (false)
    */
-  protected applyEvent(event: BaseDomainEvent, isNew: boolean = true): void {
+  public applyEvent(event: BaseDomainEvent, isNew: boolean = true): void {
     // Применяем изменения к состоянию агрегата
     this.when(event);
 
@@ -84,7 +84,7 @@ export abstract class EventSourcedAggregateRoot {
 
     // Если это новое событие, добавляем в список неподтвержденных
     if (isNew) {
-      event.aggregateVersion = this._version;
+      (event as any).aggregateVersion = this._version; // Type assertion для совместимости
       this._uncommittedEvents.push(event);
     }
   }

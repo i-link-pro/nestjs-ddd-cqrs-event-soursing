@@ -404,7 +404,7 @@ export class UserEventSourcingController {
         users: users.map(user => ({
           userId: user.userId,
           email: user.email,
-          fullName: `${user.firstName} ${user.lastName}`,
+          fullName: user.fullName,
           createdAt: user.createdAt
         }))
       }

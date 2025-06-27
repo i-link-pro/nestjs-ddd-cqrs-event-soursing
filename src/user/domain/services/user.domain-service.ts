@@ -1,4 +1,4 @@
-import { User } from '../entities/user.entity';
+import { User } from '../entities/user-aggregate';
 import { Email } from '../value-objects/email';
 import { UserRepositoryInterface } from '../repositories/user.repository.interface';
 

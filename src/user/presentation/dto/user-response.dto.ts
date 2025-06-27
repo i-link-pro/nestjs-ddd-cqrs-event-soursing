@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { User } from '../../domain/entities/user.entity';
+import { User } from '../../domain/entities/user-aggregate';
 
 /**
  * DTO для ответа с данными пользователя
